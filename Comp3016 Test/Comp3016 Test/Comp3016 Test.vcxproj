@@ -143,6 +143,10 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Event.hpp" />
+    <ClInclude Include="FileIO.hpp" />
+    <ClInclude Include="Game.hpp" />
+    <ClInclude Include="Player.hpp" />
     <ClInclude Include="Utils.hpp" />
   </ItemGroup>
   <ItemGroup>

@@ -1,0 +1,7 @@
+health=100
+energy=100
+food=3
+water=3
+wood=0
+day=1
+has_shelter=0

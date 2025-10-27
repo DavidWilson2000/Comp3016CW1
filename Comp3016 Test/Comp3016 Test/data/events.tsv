@@ -1,0 +1,7 @@
+# type	description	energy	food	water	wood	health	prob
+WEATHER	Storm batters your camp.	-10	0	0	-2	-5	2
+FORAGE	You find wild berries.	-5	+2	0	0	0	5
+WATER	You discover a clear stream.	-5	0	+2	0	0	5
+ANIMAL	A boar charges you!	-15	0	0	0	-10	2
+DISCOVERY	You spot driftwood on the shore.	-5	0	0	+3	0	4
+ILLNESS	You feel feverish.	-5	0	0	0	-8	3
