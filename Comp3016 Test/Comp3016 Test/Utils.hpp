@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
+
 inline std::string trim(std::string s) {
     auto notspace = [](unsigned char c) { return !std::isspace(c); };
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), notspace));
@@ -14,6 +15,9 @@ inline std::string trim(std::string s) {
 // ===== Console color helpers =====
 //
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 enum class ConsoleColor : WORD {
     Default = 7, Red = 12, Green = 10,

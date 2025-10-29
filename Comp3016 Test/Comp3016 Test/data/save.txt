@@ -1,9 +1,9 @@
 health=92
-energy=100
-food=1
-water=4
-wood=0
-day=13
+energy=5
+food=6
+water=10
+wood=6
+day=26
 has_shelter=1
-days_since_eat=2
-days_since_drink=1
+days_since_eat=0
+days_since_drink=2
