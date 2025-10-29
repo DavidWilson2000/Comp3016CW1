@@ -11,6 +11,10 @@ struct Player {
     int day{ 1 };
     bool hasShelter{ false };
 
+    // New hunger/thirst timers
+    int daysSinceEat{ 0 };
+    int daysSinceDrink{ 0 };
+
     void clamp() {
         auto clamp01 = [](int& v, int lo, int hi) { if (v < lo) v = lo; if (v > hi) v = hi; };
         clamp01(health, 0, 100);
@@ -24,10 +28,11 @@ struct Player {
     bool isDead() const { return health <= 0 || energy <= 0; }
 
     std::string summary() const {
-        char buf[200];
+        char buf[250];
         std::snprintf(buf, sizeof(buf),
-            "Day %d | Health:%d Energy:%d | Food:%d Water:%d Wood:%d | Shelter:%s",
-            day, health, energy, food, water, wood, hasShelter ? "Yes" : "No");
+            "Day %d | Health:%d Energy:%d | Food:%d Water:%d Wood:%d | Shelter:%s | Hunger:%dd Thirst:%dd",
+            day, health, energy, food, water, wood,
+            hasShelter ? "Yes" : "No", daysSinceEat, daysSinceDrink);
         return buf;
     }
 };

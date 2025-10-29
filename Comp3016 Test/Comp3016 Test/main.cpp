@@ -3,7 +3,6 @@
 #include "Game.hpp"
 
 int main(int, char**) {
-    // SDL3 setup
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
         return 1;
@@ -19,12 +18,11 @@ int main(int, char**) {
         return 1;
     }
 
-    // Draw simple background
+    // Simple background so you know SDL is up
     SDL_SetRenderDrawColor(renderer, 25, 30, 60, 255);
     SDL_RenderClear(renderer);
     SDL_RenderPresent(renderer);
 
-    // Run text-based game
     try {
         Game game("data");
         game.run();

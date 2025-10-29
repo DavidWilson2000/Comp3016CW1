@@ -35,6 +35,8 @@ Player FileIO::loadPlayerInit(const std::string& path) {
         else if (k == "wood") p.wood = toInt(v);
         else if (k == "day") p.day = toInt(v);
         else if (k == "has_shelter") p.hasShelter = (toInt(v) != 0);
+        else if (k == "days_since_eat") p.daysSinceEat = toInt(v);
+        else if (k == "days_since_drink") p.daysSinceDrink = toInt(v);
     }
     p.clamp();
     return p;
@@ -79,6 +81,8 @@ void FileIO::saveGame(const std::string& path, const Player& p) {
     out << "wood=" << p.wood << "\n";
     out << "day=" << p.day << "\n";
     out << "has_shelter=" << (p.hasShelter ? 1 : 0) << "\n";
+    out << "days_since_eat=" << p.daysSinceEat << "\n";
+    out << "days_since_drink=" << p.daysSinceDrink << "\n";
 }
 
 Player FileIO::loadSave(const std::string& path) {

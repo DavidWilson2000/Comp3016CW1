@@ -1,5 +1,6 @@
 #include "Game.hpp"
 #include "FileIO.hpp"
+#include "Utils.hpp"
 #include <iostream>
 #include <chrono>
 
@@ -19,21 +20,29 @@ Game::Game(const std::string& dataDir)
 }
 
 void Game::printHeader() const {
-    std::cout << "\n=== Survivor Island ===\n" << player_.summary() << "\n";
+    setColor(ConsoleColor::Cyan);
+    std::cout << "\n=== Survivor Island ===\n";
+    resetColor();
+
+    setColor(ConsoleColor::Yellow);
+    std::cout << player_.summary() << "\n";
+    resetColor();
 }
 
 void Game::printMenu() const {
-    std::cout << "\nChoose an action:\n"
-        << " 1) Forage (food)\n"
-        << " 2) Collect water\n"
-        << " 3) Gather wood\n"
-        << " 4) Explore (random event)\n"
-        << " 5) Rest\n"
-        << " 6) Build shelter (cost: 5 wood)\n"
-        << " 7) Eat (-1 food +10 energy)\n"
-        << " 8) Drink (-1 water +10 energy)\n"
-        << " 9) Save & Quit\n"
-        << "> ";
+    std::cout << "\nChoose an action:\n";
+    auto n = [&](int i) { setColor(ConsoleColor::Cyan); std::cout << " " << i << ") "; resetColor(); };
+
+    n(1); std::cout << "Forage (food)\n";
+    n(2); std::cout << "Collect water\n";
+    n(3); std::cout << "Gather wood\n";
+    n(4); std::cout << "Explore (random event)\n";
+    n(5); std::cout << "Rest\n";
+    n(6); std::cout << "Build shelter (cost: 5 wood)\n";
+    n(7); std::cout << "Eat (-1 food +10 energy)\n";
+    n(8); std::cout << "Drink (-1 water +10 energy)\n";
+    n(9); std::cout << "Save & Quit\n";
+    std::cout << "> ";
 }
 
 void Game::doAction(int c) {
@@ -44,16 +53,33 @@ void Game::doAction(int c) {
     case 4: player_.energy -= 8; applyEvent(); break;
     case 5: player_.energy += player_.hasShelter ? 25 : 15; break;
     case 6:
-        if (player_.wood >= 5) { player_.wood -= 5; player_.hasShelter = true; std::cout << "You build a simple shelter.\n"; }
-        else std::cout << "Not enough wood.\n";
+        if (player_.wood >= 5) {
+            player_.wood -= 5; player_.hasShelter = true;
+            setColor(ConsoleColor::Green);
+            std::cout << "You build a simple shelter.\n";
+            resetColor();
+        }
+        else {
+            setColor(ConsoleColor::Red);
+            std::cout << "Not enough wood.\n";
+            resetColor();
+        }
         break;
     case 7:
-        if (player_.food > 0) { player_.food--; player_.energy += 10; }
-        else std::cout << "You have no food.\n";
+        if (player_.food > 0) {
+            player_.food--; player_.energy += 10; player_.daysSinceEat = 0;
+        }
+        else {
+            setColor(ConsoleColor::Red); std::cout << "You have no food.\n"; resetColor();
+        }
         break;
     case 8:
-        if (player_.water > 0) { player_.water--; player_.energy += 10; }
-        else std::cout << "You have no water.\n";
+        if (player_.water > 0) {
+            player_.water--; player_.energy += 10; player_.daysSinceDrink = 0;
+        }
+        else {
+            setColor(ConsoleColor::Red); std::cout << "You have no water.\n"; resetColor();
+        }
         break;
     case 9:
         try {
@@ -84,7 +110,15 @@ void Game::applyEvent() {
     }
     if (!picked) return;
 
+    int score = picked->dEnergy + picked->dFood + picked->dWater + picked->dWood + picked->dHealth;
+    ConsoleColor col = ConsoleColor::Gray;
+    if (score > 0)      col = ConsoleColor::Green;
+    else if (score < 0) col = ConsoleColor::Red;
+
+    setColor(col);
     std::cout << "\n>> " << picked->description << "\n";
+    resetColor();
+
     player_.energy += picked->dEnergy;
     player_.food += picked->dFood;
     player_.water += picked->dWater;
@@ -94,10 +128,64 @@ void Game::applyEvent() {
 }
 
 void Game::nextDayTick() {
-    if (player_.food == 0) { player_.health -= 5; }
-    if (player_.water == 0) { player_.health -= 7; }
-    if (player_.hasShelter) { player_.energy += 5; }
     player_.day++;
+    player_.daysSinceEat++;
+    player_.daysSinceDrink++;
+
+    if (player_.daysSinceEat == 2) {
+        setColor(ConsoleColor::Yellow);
+        std::cout << "Your stomach growls. Consider eating soon.\n";
+        resetColor();
+    }
+    if (player_.daysSinceDrink == 2) {
+        setColor(ConsoleColor::Yellow);
+        std::cout << "You feel parched. Consider drinking soon.\n";
+        resetColor();
+    }
+
+    // Food check
+    if (player_.daysSinceEat >= 3) {
+        if (player_.food > 0) {
+            player_.food--;
+            player_.daysSinceEat = 0;
+            setColor(ConsoleColor::Green);
+            std::cout << "You eat some food to keep going.\n";
+            resetColor();
+        }
+        else {
+            int hpLoss = (player_.daysSinceEat >= 4) ? 12 : 6;
+            int enLoss = (player_.daysSinceEat >= 4) ? 18 : 10;
+            player_.health -= hpLoss;
+            player_.energy -= enLoss;
+            setColor(ConsoleColor::Red);
+            std::cout << "You are starving (" << player_.daysSinceEat
+                << " days without food). HP-" << hpLoss << " EN-" << enLoss << "\n";
+            resetColor();
+        }
+    }
+
+    // Water check
+    if (player_.daysSinceDrink >= 3) {
+        if (player_.water > 0) {
+            player_.water--;
+            player_.daysSinceDrink = 0;
+            setColor(ConsoleColor::Green);
+            std::cout << "You drink water and feel better.\n";
+            resetColor();
+        }
+        else {
+            int hpLoss = (player_.daysSinceDrink >= 4) ? 25 : 12;
+            int enLoss = (player_.daysSinceDrink >= 4) ? 25 : 15;
+            player_.health -= hpLoss;
+            player_.energy -= enLoss;
+            setColor(ConsoleColor::Red);
+            std::cout << "You are dehydrated (" << player_.daysSinceDrink
+                << " days without water). HP-" << hpLoss << " EN-" << enLoss << "\n";
+            resetColor();
+        }
+    }
+
+    if (player_.hasShelter) { player_.energy += 5; }
     player_.clamp();
 }
 
@@ -111,7 +199,10 @@ void Game::run() {
 
     while (true) {
         printHeader();
-        if (player_.isDead()) { std::cout << "\nYou collapse. The island claims another soul.\n"; break; }
+        if (player_.isDead()) {
+            std::cout << "\nYou collapse. The island claims another soul.\n";
+            break;
+        }
 
         printMenu();
         int choice = 0;
@@ -121,6 +212,7 @@ void Game::run() {
             std::cout << "Please enter a number.\n";
             continue;
         }
+
         doAction(choice);
         nextDayTick();
     }
