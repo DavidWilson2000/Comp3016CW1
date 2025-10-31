@@ -12,7 +12,6 @@
 #include <string>
 #include <random>
 #include <string_view>
-#include <algorithm> // std::clamp
 
 // ---------- 5x7 Font helpers (no SDL_ttf) ----------
 namespace ui {
@@ -84,7 +83,6 @@ namespace ui {
         for (int ry = 0; ry < 7; ++ry) {
             uint8_t bits = rows[ry];
             for (int rx = 0; rx < 5; ++rx) {
-                // Leftmost pixel corresponds to the MSB (bit 4)
                 if (bits & (1u << (4 - rx))) {
                     SDL_FRect pix{ x + rx * scale, y + ry * scale, scale, scale };
                     SDL_RenderFillRect(r, &pix);
@@ -93,35 +91,23 @@ namespace ui {
         }
     }
 
-
     static void DrawText5x7(SDL_Renderer* r, float x, float y, const std::string& s, float scale, SDL_Color c) {
         float cx = x;
         for (char ch : s) {
             if (ch == '\n') { y += 8 * scale; cx = x; continue; }
             DrawChar5x7(r, cx, y, ch, scale, c);
-            cx += 6 * scale; // 5px + 1px spacing
+            cx += 6 * scale; // 5px glyph + 1px spacing
         }
     }
 
-} // namespace ui
+} 
 
-// ======================================================================
-// Local helpers/state (kept out of headers)
-// ======================================================================
 
-// Clamp integer to 0..255 and return Uint8
 static inline Uint8 clampU8(int v) {
     if (v < 0) v = 0;
     else if (v > 255) v = 255;
     return (Uint8)v;
 }
-
-enum class DayPhase { Morning, Day, Evening, Night };
-static DayPhase g_phase = DayPhase::Morning;
-
-static bool g_hasCampfire = false;
-static bool g_hasCollector = false;
-static float g_lightningFlash = 0.0f; // 0..1
 
 static int   irand(std::mt19937& rng, int a, int b) { std::uniform_int_distribution<int> d(a, b); return d(rng); }
 static float frand(std::mt19937& rng, float a, float b) { std::uniform_real_distribution<float> d(a, b); return d(rng); }
@@ -143,15 +129,76 @@ static SDL_Color bgForPhase(DayPhase ph) {
     };
 }
 
+// ---------------- Director implementation ----------------
+// Matches the API declared in Game.hpp
+void Director::onDayStart(const Player& p, const WorldState& w) {
+    // Adjust baseline tension from basic survival pressure
+    float hp = p.health / 100.0f;
+    float scarcity = 0.0f;
+    if (p.food <= 0)  scarcity += 0.12f;
+    if (p.water <= 0) scarcity += 0.16f;
+    if (!p.hasShelter) scarcity += 0.08f;
+
+    float weatherStress = (w.weather == Weather::Storm) ? 0.10f
+        : (w.weather == Weather::Rain) ? 0.03f : -0.02f;
+
+    // Health helps reduce tension when high
+    float change = scarcity + weatherStress - (hp > 0.8f ? 0.05f : 0.0f);
+
+    tension += change;
+    if (tension < 0.0f) tension = 0.0f;
+    if (tension > 1.0f) tension = 1.0f;
+}
+
+void Director::onEventApplied(const Event& e) {
+    int delta = e.dEnergy + e.dFood + e.dWater + e.dWood + e.dHealth;
+    lastType = e.type;
+
+    if (delta >= 0) {
+        goodStreak++;
+        badStreak = 0;
+        tension -= 0.05f;
+    }
+    else {
+        badStreak++;
+        goodStreak = 0;
+        tension += 0.06f;
+    }
+
+    if (tension < 0.0f) tension = 0.0f;
+    if (tension > 1.0f) tension = 1.0f;
+}
+
+float Director::weatherBias() const {
+    // -1..+1: <0 favors clearer, >0 favors stormier
+    if (tension > 0.7f)  return -0.35f; // ease up when very tense
+    if (tension < 0.25f) return +0.20f; // add spice when too calm
+    return 0.0f;
+}
+
+float Director::weightMultiplierForType(const std::string& type) const {
+    // Nudge event categories based on tension
+    if (tension > 0.65f) {
+        if (type == "WATER")     return 1.35f;
+        if (type == "FORAGE")    return 1.20f;
+        if (type == "WEATHER")   return 0.75f;
+        if (type == "ANIMAL")    return 0.90f;
+    }
+    else if (tension < 0.25f) {
+        if (type == "DISCOVERY") return 1.20f;
+        if (type == "ANIMAL")    return 1.15f;
+    }
+    return 1.0f;
+}
 
 // Weather overlay (prominent but readable)
 static void renderWeatherEffects(SDL_Renderer* renderer, int w, int h,
-    Game::Weather weather, float& lightningFlash,
+    Weather weather, float& lightningFlash,
     std::mt19937& rng)
 {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-    if (weather == Game::Weather::Clear) {
+    if (weather == Weather::Clear) {
         SDL_SetRenderDrawColor(renderer, 255, 220, 120, 30);
         for (int r = 60; r > 0; r -= 6) {
             SDL_FRect ring{ (float)w - 80.0f - r, 20.0f - r, (float)r * 2.0f, (float)r * 2.0f };
@@ -161,13 +208,13 @@ static void renderWeatherEffects(SDL_Renderer* renderer, int w, int h,
     }
 
     // Rain/Storm tint
-    SDL_SetRenderDrawColor(renderer, 0, 0, 20, (weather == Game::Weather::Rain ? 80 : 120));
+    SDL_SetRenderDrawColor(renderer, 0, 0, 20, (weather == Weather::Rain ? 80 : 120));
     SDL_FRect tint{ 0,0,(float)w,(float)h }; SDL_RenderFillRect(renderer, &tint);
 
     // Rain streaks
     SDL_SetRenderDrawColor(renderer, 100, 180, 255, 170);
-    int drops = (weather == Game::Weather::Rain ? 120 : 180);
-    float speed = (weather == Game::Weather::Rain ? 7.0f : 10.0f);
+    int drops = (weather == Weather::Rain ? 120 : 180);
+    float speed = (weather == Weather::Rain ? 7.0f : 10.0f);
     float offset = frand(rng, 0.0f, 10.0f);
 
     for (int i = 0; i < drops; ++i) {
@@ -176,7 +223,7 @@ static void renderWeatherEffects(SDL_Renderer* renderer, int w, int h,
         SDL_RenderLine(renderer, x, y, x - 2.0f, y + 8.0f);
     }
 
-    if (weather == Game::Weather::Storm) {
+    if (weather == Weather::Storm) {
         if (irand(rng, 0, 120) == 0) lightningFlash = 1.0f;
         if (lightningFlash > 0.01f) {
             Uint8 a = (Uint8)(220 * lightningFlash);
@@ -184,16 +231,18 @@ static void renderWeatherEffects(SDL_Renderer* renderer, int w, int h,
             SDL_FRect flash{ 0,0,(float)w,(float)h }; SDL_RenderFillRect(renderer, &flash);
             lightningFlash *= 0.85f;
         }
-        else lightningFlash = 0.0f;
+        else {
+            lightningFlash = 0.0f;
+        }
     }
 }
 
 // Simple crafting sub-menu
-static void craftMenu(Player& player, bool& hasCampfire, bool& hasCollector)
+static void craftMenu(Player& player, WorldState& world)
 {
     std::cout << "\n-- Crafting --\n";
-    std::cout << "1) Campfire (cost: 2 wood)  " << (hasCampfire ? "[built]\n" : "\n");
-    std::cout << "2) Rain Collector (cost: 3 wood)  " << (hasCollector ? "[built]\n" : "\n");
+    std::cout << "1) Campfire (cost: 2 wood)  " << (world.hasCampfire ? "[built]\n" : "\n");
+    std::cout << "2) Rain Collector (cost: 3 wood)  " << (world.hasCollector ? "[built]\n" : "\n");
     std::cout << "3) Cancel\n> ";
     std::string line; std::getline(std::cin, line); if (line.empty()) std::getline(std::cin, line);
     int choice = 0; try { choice = std::stoi(line); }
@@ -201,13 +250,13 @@ static void craftMenu(Player& player, bool& hasCampfire, bool& hasCollector)
 
     switch (choice) {
     case 1:
-        if (hasCampfire) { std::cout << "You already have a campfire.\n"; break; }
-        if (player.wood >= 2) { player.wood -= 2; hasCampfire = true; std::cout << "Campfire built. +10 energy daily.\n"; }
+        if (world.hasCampfire) { std::cout << "You already have a campfire.\n"; break; }
+        if (player.wood >= 2) { player.wood -= 2; world.hasCampfire = true; std::cout << "Campfire built. +10 energy daily.\n"; }
         else std::cout << "Not enough wood.\n";
         break;
     case 2:
-        if (hasCollector) { std::cout << "You already have a rain collector.\n"; break; }
-        if (player.wood >= 3) { player.wood -= 3; hasCollector = true; std::cout << "Rain collector built. +1 water on rainy days.\n"; }
+        if (world.hasCollector) { std::cout << "You already have a rain collector.\n"; break; }
+        if (player.wood >= 3) { player.wood -= 3; world.hasCollector = true; std::cout << "Rain collector built. +1 water on rainy days.\n"; }
         else std::cout << "Not enough wood.\n";
         break;
     default: std::cout << "No item crafted.\n"; break;
@@ -226,7 +275,8 @@ Game::Game(const std::string& dataDir)
         events_ = FileIO::loadEventsTSV(dataDir_ + "/events.tsv");
     }
     catch (const std::exception& e) {
-        std::cerr << "[FATAL] " << e.what() << "\n"; std::exit(1);
+        std::cerr << "[FATAL] " << e.what() << "\n";
+        std::exit(1);
     }
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -282,18 +332,20 @@ void Game::doAction(int c) {
     case 1: player_.energy -= 10; player_.food += 1; break;
     case 2: player_.energy -= 10; player_.water += 1; break;
     case 3: player_.energy -= 12; player_.wood += 2; break;
-    case 4: player_.energy -= 8; applyEvent();  break;
+    case 4: player_.energy -= 8;  applyEvent();       break;
     case 5: player_.energy += (player_.hasShelter ? 25 : 15); break;
     case 6:
         if (player_.wood >= 5) {
             player_.wood -= 5; player_.hasShelter = true;
             setColor(ConsoleColor::Green); std::cout << "You build a simple shelter.\n"; resetColor();
         }
-        else { setColor(ConsoleColor::Red); std::cout << "Not enough wood.\n"; resetColor(); }
+        else {
+            setColor(ConsoleColor::Red); std::cout << "Not enough wood.\n"; resetColor();
+        }
         break;
     case 7:
         if (player_.food > 0) { player_.food--;  player_.energy += 10; player_.daysSinceEat = 0; }
-        else { setColor(ConsoleColor::Red); std::cout << "You have no food.\n"; resetColor(); }
+        else { setColor(ConsoleColor::Red); std::cout << "You have no food.\n";  resetColor(); }
         break;
     case 8:
         if (player_.water > 0) { player_.water--; player_.energy += 10; player_.daysSinceDrink = 0; }
@@ -304,9 +356,9 @@ void Game::doAction(int c) {
         catch (const std::exception& e) { std::cerr << "Save failed: " << e.what() << "\n"; }
         std::exit(0);
     case 10:
-        craftMenu(player_, g_hasCampfire, g_hasCollector);
-        break;
-    default: std::cout << "Invalid choice.\n"; break;
+        craftMenu(player_, world_); break;
+    default:
+        std::cout << "Invalid choice.\n"; break;
     }
     player_.clamp();
 }
@@ -314,39 +366,55 @@ void Game::doAction(int c) {
 // ================= Weather helpers =================
 
 void Game::advanceWeather() {
+    // Base Markov-ish step from current weather
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
     float r = U(rng_);
     auto step = [&](float p0, float p1, float /*p2*/) {
-        if (r < p0)        return 0;
-        if (r < p0 + p1)   return 1;
+        if (r < p0)      return 0;
+        if (r < p0 + p1) return 1;
         return 2;
         };
     int nxt = 0;
-    switch (weather_) {
+    switch (world_.weather) {
     case Weather::Clear: nxt = step(0.70f, 0.20f, 0.10f); break;
     case Weather::Rain:  nxt = step(0.30f, 0.50f, 0.20f); break;
     case Weather::Storm: nxt = step(0.50f, 0.40f, 0.10f); break;
     }
-    weather_ = static_cast<Weather>(nxt);
+    world_.weather = static_cast<Weather>(nxt);
+
+    // Director bias (gentler when tension is high; spicier when too calm)
+    float bias = director_.weatherBias(); // -1..+1
+    float rb = U(rng_);
+    if (bias < -0.01f) {
+        if (world_.weather == Weather::Storm && rb < 0.55f) world_.weather = Weather::Rain;
+        else if (world_.weather == Weather::Rain && rb < 0.40f) world_.weather = Weather::Clear;
+    }
+    else if (bias > 0.01f) {
+        if (world_.weather == Weather::Clear && rb < 0.25f) world_.weather = Weather::Rain;
+        else if (world_.weather == Weather::Rain && rb < 0.15f) world_.weather = Weather::Storm;
+    }
 }
 
 float Game::weatherWeightMul(const std::string& type) const {
-    if (weather_ == Weather::Clear) {
-        if (type == "DISCOVERY" || type == "FORAGE") return 1.2f;
-        return 1.0f;
+    float mul = 1.0f;
+    if (world_.weather == Weather::Clear) {
+        if (type == "DISCOVERY" || type == "FORAGE") mul *= 1.2f;
     }
-    if (weather_ == Weather::Rain) {
-        if (type == "WATER")   return 2.0f;
-        if (type == "FORAGE")  return 1.1f;
-        if (type == "WEATHER") return 1.2f;
-        return 1.0f;
+    else if (world_.weather == Weather::Rain) {
+        if (type == "WATER")   mul *= 2.0f;
+        if (type == "FORAGE")  mul *= 1.1f;
+        if (type == "WEATHER") mul *= 1.2f;
     }
-    // Storm
-    if (type == "WEATHER")   return 2.0f;
-    if (type == "ANIMAL")    return 1.3f;
-    if (type == "DISCOVERY") return 0.8f;
-    if (type == "FORAGE")    return 0.9f;
-    return 1.0f;
+    else { // Storm
+        if (type == "WEATHER")   mul *= 2.0f;
+        if (type == "ANIMAL")    mul *= 1.3f;
+        if (type == "DISCOVERY") mul *= 0.8f;
+        if (type == "FORAGE")    mul *= 0.9f;
+    }
+
+    // Director overlay
+    mul *= director_.weightMultiplierForType(type);
+    return mul;
 }
 
 // ================= Events =================
@@ -355,7 +423,7 @@ void Game::applyEvent() {
     std::vector<int> eff; eff.reserve(events_.size());
     int totalW = 0;
     for (auto& e : events_) {
-        int w = (int)std::round(e.weight * weatherWeightMul(e.type));
+        int w = (int)std::floor(e.weight * weatherWeightMul(e.type) + 0.5f);
         if (w < 1) w = 1;
         eff.push_back(w); totalW += w;
     }
@@ -377,6 +445,9 @@ void Game::applyEvent() {
     player_.wood += picked->dWood;
     player_.health += picked->dHealth;
     player_.clamp();
+
+    // Notify Director
+    director_.onEventApplied(*picked);
 }
 
 // ================= Daily tick (hunger/thirst + weather + crafting + phase) =================
@@ -425,22 +496,25 @@ void Game::nextDayTick() {
     if (player_.hasShelter) player_.energy += 5;
 
     // Crafting daily bonuses
-    if (g_hasCampfire)  player_.energy += 10;
-    if (g_hasCollector && weather_ == Weather::Rain) player_.water += 1;
+    if (world_.hasCampfire)                              player_.energy += 10;
+    if (world_.hasCollector && world_.weather == Weather::Rain) player_.water += 1;
 
     // Weather daily effects
-    switch (weather_) {
+    switch (world_.weather) {
     case Weather::Clear: if (player_.hasShelter) player_.energy += 2; break;
     case Weather::Rain:  if (!player_.hasShelter) player_.energy -= 2; else player_.energy += 1; break;
     case Weather::Storm: player_.energy -= 4; if (!player_.hasShelter) player_.health -= 5; break;
     }
 
-    // Next weather and phase (once per day)
+    // Director observes start-of-day state (for next pacing decisions)
+    director_.onDayStart(player_, world_);
+
+    // Next weather and phase
     advanceWeather();
-    g_phase = (g_phase == DayPhase::Morning) ? DayPhase::Day :
-        (g_phase == DayPhase::Day) ? DayPhase::Evening :
-        (g_phase == DayPhase::Evening) ? DayPhase::Night :
-        DayPhase::Morning;
+    world_.phase = (world_.phase == DayPhase::Morning) ? DayPhase::Day
+        : (world_.phase == DayPhase::Day) ? DayPhase::Evening
+        : (world_.phase == DayPhase::Evening) ? DayPhase::Night
+        : DayPhase::Morning;
 
     player_.clamp();
     renderHUD();
@@ -507,12 +581,12 @@ void Game::renderDebugPanel(int w, int h) const {
 
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 140);
-    SDL_FRect panel{ (float)w - 240.0f, 20.0f, 220.0f, 168.0f };
+    SDL_FRect panel{ (float)w - 240.0f, 20.0f, 220.0f, 186.0f };
     SDL_RenderFillRect(renderer_, &panel);
 
-    // Weather probabilities for next day
+    // Weather probabilities for next day (based on current)
     float pClear = 0.0f, pRain = 0.0f, pStorm = 0.0f;
-    switch (weather_) {
+    switch (world_.weather) {
     case Weather::Clear: pClear = 0.70f; pRain = 0.20f; pStorm = 0.10f; break;
     case Weather::Rain:  pClear = 0.30f; pRain = 0.50f; pStorm = 0.20f; break;
     case Weather::Storm: pClear = 0.50f; pRain = 0.40f; pStorm = 0.10f; break;
@@ -532,7 +606,6 @@ void Game::renderDebugPanel(int w, int h) const {
 
     // Hunger / thirst meters
     auto meter = [&](float y, int v, SDL_Color c) {
-        // manual clamp since C++17's std::clamp isn't guaranteed available
         int vcap = v; if (vcap < 0) vcap = 0; if (vcap > 4) vcap = 4;
         float unitW = 20.0f, unitH = 8.0f, gap = 4.0f;
         for (int i = 0; i < 4; i++) {
@@ -553,11 +626,11 @@ void Game::renderDebugPanel(int w, int h) const {
         "THIRST", 2.0f, SDL_Color{ 255,255,255,255 });
     meter(panel.y + 124.0f, player_.daysSinceDrink, SDL_Color{ 100,180,255,255 });
 
-    // Phase + general info
+    // Phase + general info + Director debug
     const char* phaseName =
-        (g_phase == DayPhase::Morning) ? "MORN" :
-        (g_phase == DayPhase::Day) ? "DAY" :
-        (g_phase == DayPhase::Evening) ? "EVE" : "NIGHT";
+        (world_.phase == DayPhase::Morning) ? "MORN" :
+        (world_.phase == DayPhase::Day) ? "DAY" :
+        (world_.phase == DayPhase::Evening) ? "EVE" : "NIGHT";
 
     ui::DrawText5x7(renderer_, panel.x + 10.0f, panel.y + 142.0f,
         std::string("DAY:") + std::to_string(player_.day) +
@@ -566,34 +639,44 @@ void Game::renderDebugPanel(int w, int h) const {
         2.0f, SDL_Color{ 230,230,230,255 });
 
     std::string crafts =
-        std::string("CF:") + (g_hasCampfire ? "Y" : "N") +
-        " RC:" + (g_hasCollector ? "Y" : "N");
+        std::string("CF:") + (world_.hasCampfire ? "Y" : "N") +
+        " RC:" + (world_.hasCollector ? "Y" : "N");
     ui::DrawText5x7(renderer_, panel.x + 140.0f, panel.y + 142.0f,
         crafts, 2.0f, SDL_Color{ 230,230,230,255 });
+
+    // Director tension meter
+    ui::DrawText5x7(renderer_, panel.x + 10.0f, panel.y + 160.0f,
+        "DIR TENSION", 2.0f, SDL_Color{ 255,255,255,255 });
+    float t = director_.tension; if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
+    SDL_SetRenderDrawColor(renderer_, 255, 200, 100, 255);
+    SDL_FRect tr{ panel.x + 10.0f, panel.y + 176.0f, t * (panel.w - 20.0f), 8.0f };
+    SDL_RenderFillRect(renderer_, &tr);
 }
 
 // ================= HUD rendering (SDL) =================
 
-void Game::renderHUD() const {
-    static float prevFood = player_.food, prevWater = player_.water, prevWood = player_.wood;
+void Game::renderHUD() {
+    static float prevFood = (float)0;
+    static float prevWater = (float)0;
+    static float prevWood = (float)0;
     static float animTimer = 0.0f; animTimer += 0.05f;
 
     bool pulseFood = (player_.food != (int)prevFood);
     bool pulseWater = (player_.water != (int)prevWater);
     bool pulseWood = (player_.wood != (int)prevWood);
-    if (pulseFood)  prevFood = player_.food;
-    if (pulseWater) prevWater = player_.water;
-    if (pulseWood)  prevWood = player_.wood;
+    if (pulseFood)  prevFood = (float)player_.food;
+    if (pulseWater) prevWater = (float)player_.water;
+    if (pulseWood)  prevWood = (float)player_.wood;
 
     // Background tint by time-of-day
-    SDL_Color bg = bgForPhase(g_phase);
+    SDL_Color bg = bgForPhase(world_.phase);
     SDL_SetRenderDrawColor(renderer_, bg.r, bg.g, bg.b, 255);
     SDL_RenderClear(renderer_);
 
     int w, h; SDL_GetWindowSize(window_, &w, &h);
 
     // Weather visuals behind HUD
-    renderWeatherEffects(renderer_, w, h, weather_, g_lightningFlash, const_cast<std::mt19937&>(rng_));
+    renderWeatherEffects(renderer_, w, h, world_.weather, world_.lightningFlash, rng_);
 
     // Health bar
     float barX = 20.0f, barY = 20.0f, barWidth = (float)(w - 40); if (barWidth < 120.0f) barWidth = 120.0f;
@@ -606,7 +689,7 @@ void Game::renderHUD() const {
 
     // Weather icon + labels
     SDL_FRect icon{ (float)w - 60.0f, 22.0f, 38.0f, 26.0f };
-    switch (weather_) {
+    switch (world_.weather) {
     case Weather::Clear: {
         SDL_SetRenderDrawColor(renderer_, 255, 220, 80, 255);
         for (int y = -10; y < 10; ++y) for (int x = -10; x < 10; ++x)
@@ -631,9 +714,9 @@ void Game::renderHUD() const {
     }
     }
 
-    const char* wname = (weather_ == Weather::Clear) ? "CLEAR" : (weather_ == Weather::Rain) ? "RAIN" : "STORM";
-    const char* phname = (g_phase == DayPhase::Morning) ? "MORNING" : (g_phase == DayPhase::Day) ? "DAY" :
-        (g_phase == DayPhase::Evening) ? "EVENING" : "NIGHT";
+    const char* wname = (world_.weather == Weather::Clear) ? "CLEAR" : (world_.weather == Weather::Rain) ? "RAIN" : "STORM";
+    const char* phname = (world_.phase == DayPhase::Morning) ? "MORNING" : (world_.phase == DayPhase::Day) ? "DAY" :
+        (world_.phase == DayPhase::Evening) ? "EVENING" : "NIGHT";
     ui::DrawText5x7(renderer_, (float)w - 130.0f, barY + 4.0f, wname, 2.0f, SDL_Color{ 230,230,230,255 });
     ui::DrawText5x7(renderer_, barX + 220.0f, barY - 16.0f, phname, 2.0f, SDL_Color{ 230,230,230,255 });
 
@@ -641,9 +724,9 @@ void Game::renderHUD() const {
     float boxSize = 80.0f, padding = 20.0f, startY = 80.0f, startX = 20.0f;
     struct Item { const char* label; int value; SDL_Color color; bool pulse; };
     Item items[] = {
-        {"FOOD",  player_.food,  SDL_Color{200,200, 50,255}, pulseFood  },
-        {"WATER", player_.water, SDL_Color{ 80,180,255,255}, pulseWater },
-        {"WOOD",  player_.wood,  SDL_Color{139, 69, 19,255}, pulseWood  }
+        {"FOOD",  player_.food,  SDL_Color{200,200, 50,255},   pulseFood  },
+        {"WATER", player_.water, SDL_Color{ 80,180,255,255},   pulseWater },
+        {"WOOD",  player_.wood,  SDL_Color{139, 69, 19,255},   pulseWood  }
     };
 
     for (int i = 0; i < 3; ++i) {
