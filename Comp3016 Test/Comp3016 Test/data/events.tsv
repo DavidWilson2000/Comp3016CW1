@@ -1,7 +1,75 @@
-# type	description	energy	food	water	wood	health	prob
-WEATHER	Storm batters your camp.	-10	0	0	-2	-5	2
-FORAGE	You find wild berries.	-5	+2	0	0	0	5
-WATER	You discover a clear stream.	-5	0	+2	0	0	5
-ANIMAL	A boar charges you!	-15	0	0	0	-10	2
-DISCOVERY	You spot driftwood on the shore.	-5	0	0	+3	0	4
-ILLNESS	You feel feverish.	-5	0	0	0	-8	3
+# TYPE	DESCRIPTION	dEnergy	dFood	dWater	dWood	dHealth	Weight
+
+FORAGE	You find a patch of berries.	8	-2	+2	0	0	0
+FORAGE	You forage edible roots.	6	-3	+1	0	0	0
+FORAGE	You eat a bad mushroom.	3	-2	-1	0	0	-8
+FORAGE	You knock down a coconut.	5	-2	+1	0	0	0
+FORAGE	You strip edible bark.	4	-2	+1	0	0	-1
+FORAGE	You scare off gulls from scraps.	3	-1	+1	0	0	0
+FORAGE	You discover a tangled berry thicket.	7	-3	+3	0	0	0
+
+WATER	You collect dew from leaves.	5	-2	0	+1	0	0
+WATER	You find a tiny spring.	4	-2	0	+2	0	0
+WATER	You drink from a murky pool.	2	-1	0	+1	0	-6
+WATER	You boil a pot at camp.	3	-1	0	0	0	+2
+WATER	You dig a seep near the shore.	4	-2	0	+1	0	-1
+WATER	You discover rain pooled in rock hollows.	5	-2	0	+2	0	0
+
+ANIMAL	A curious bird drops a fish.	3	-1	+1	0	0	0
+ANIMAL	A raccoon raids your stash.	3	-2	-1	0	0	-3
+ANIMAL	Boar encounter—minor scrape.	2	-3	0	0	0	-7
+ANIMAL	You snare a crab between stones.	4	-2	+1	0	0	0
+ANIMAL	Night insects keep you awake.	1	0	0	0	0	-4
+ANIMAL	You follow tiny tracks to a hidden cache.	4	-2	+1	0	0	0
+
+DISCOVERY	You spot shelter materials.	5	-2	0	0	+2	0
+DISCOVERY	You craft a better tool.	3	-2	0	0	+1	+3
+DISCOVERY	You find an old firepit.	4	-1	0	0	0	+2
+DISCOVERY	You uncover a half-buried crate.	3	0	0	0	0	+2
+DISCOVERY	You map a safe path through brambles.	6	-2	0	0	0	+1
+DISCOVERY	You lash branches into a frame.	5	-2	0	0	+2	0
+
+WEATHER	A sudden gust chills you.	4	-2	0	0	0	-3
+WEATHER	A warm break in clouds.	4	+2	0	0	0	+2
+WEATHER	A squall drenches supplies.	2	-2	-1	0	-1	-2
+WEATHER	Fine breeze clears your head.	4	+1	0	0	0	+1
+WEATHER	Oppressive heat saps your will.	2	-3	0	0	0	-4
+WEATHER	Thunder keeps you on edge.	3	-2	0	0	0	-3
+
+# ---------------------------
+# CHAIN 101: Distant smoke -> abandoned camp -> salvage / danger
+# ---------------------------
+DISCOVERY	You notice distant smoke curling above the trees. {chain:101}	4	-1	0	0	0	+1
+DISCOVERY	You find an abandoned camp under the ridge. {chain:101}	3	0	0	0	+1	+2
+DISCOVERY	You salvage cordage and a torn tarp. {chain:101}	5	0	0	0	+2	+2
+ANIMAL	A startled boar charges through the old camp. {chain:101}	2	0	0	0	0	-6
+
+# ---------------------------
+# CHAIN 202: Rusted radio -> tuning attempts -> partial success / storm setback
+# ---------------------------
+DISCOVERY	You uncover a rusted hand radio in driftwood. {chain:202}	3	0	0	0	0	+2
+DISCOVERY	You jury-rig a new antenna from wire. {chain:202}	4	0	0	+1	+1	+2
+DISCOVERY	Static clears—brief words cut through. {chain:202}	5	0	0	0	0	+3
+WEATHER	A squall knocks your antenna askew. {chain:202}	2	-1	0	0	0	-3
+
+# ---------------------------
+# CHAIN 303: Animal trail -> hidden stream -> rich glade
+# ---------------------------
+ANIMAL	You spot a fresh animal trail through ferns. {chain:303}	4	-1	0	0	0	0
+WATER	The trail leads to a shaded trickle of clean water. {chain:303}	5	-2	0	+2	0	+1
+FORAGE	You reach a glade teeming with mushrooms and berries. {chain:303}	7	-3	+3	0	0	+1
+
+# ---------------------------
+# CHAIN 404: Cave mouth -> glittering pool -> bat swarm
+# ---------------------------
+DISCOVERY	You find a cave mouth in the cliffside. {chain:404}	3	-1	0	0	0	+1
+WATER	A glittering underground pool quenches your thirst. {chain:404}	4	-1	0	+2	0	+1
+ANIMAL	Bats erupt; you stumble and cut your arm. {chain:404}	2	0	0	0	0	-6
+
+# Extra variety / mid-late game feeling
+FORAGE	You smoke fish over coals and store rations.	6	-2	+2	0	0	+1
+DISCOVERY	You reinforce your shelter joints.	5	-1	0	0	+2	+1
+ANIMAL	Fox steals a wrapped bundle in the night.	2	-2	-1	0	0	-4
+WATER	Rain funnels neatly into your containers.	6	-1	0	+2	0	+1
+WEATHER	A rainbow lifts your spirits.	4	+1	0	0	0	+2
+FORAGE	You trade energy now for wood later (careful planning).	8	-3	0	+2	0	+1

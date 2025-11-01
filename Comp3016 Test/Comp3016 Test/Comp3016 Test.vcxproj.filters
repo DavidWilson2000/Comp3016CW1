@@ -38,6 +38,9 @@
     <None Include="events.tsv">
       <Filter>data/</Filter>
     </None>
+    <None Include="difficulty.tsv">
+      <Filter>data/</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="player_init.txt">

@@ -12,8 +12,11 @@
 #include <string>
 #include <random>
 #include <string_view>
+#include <fstream>   // difficulty.tsv (optional)
+#include <sstream>   // parsing utilities
+#include <cctype>    // std::toupper
 
-// ---------- 5x7 Font helpers (no SDL_ttf) ----------
+//  5x7 Font helpers
 namespace ui {
 
     static const uint8_t FONT5x7[][7] = {
@@ -100,8 +103,47 @@ namespace ui {
         }
     }
 
-} 
+} // namespace ui
 
+
+// Helpers / local state
+static std::string stripTags(const std::string& s) {
+    std::string out = s;
+    size_t pos = 0;
+    while ((pos = out.find('{', pos)) != std::string::npos) {
+        size_t end = out.find('}', pos + 1);
+        if (end == std::string::npos) break;
+        out.erase(pos, end - pos + 1);
+    }
+    // trim spaces
+    auto ltrim = [](std::string& t) {
+        size_t i = 0; while (i < t.size() && std::isspace((unsigned char)t[i])) ++i; t.erase(0, i);
+        };
+    auto rtrim = [](std::string& t) {
+        while (!t.empty() && std::isspace((unsigned char)t.back())) t.pop_back();
+        };
+    ltrim(out); rtrim(out);
+    return out;
+}
+
+// Build a short "[FOOD+1 WATER-2 HP+3]" style string (only non-zero stats)
+static std::string buildDeltaString(const Event& e) {
+    std::string d;
+    auto add = [&](const char* label, int v) {
+        if (v == 0) return;
+        if (!d.empty()) d += ' ';
+        d += label;
+        if (v > 0) d += '+';
+        d += std::to_string(v);
+        };
+    add("EN", e.dEnergy);
+    add("FOOD", e.dFood);
+    add("WATER", e.dWater);
+    add("WOOD", e.dWood);
+    add("HP", e.dHealth);
+    if (d.empty()) d = "no change";
+    return "[" + d + "]";
+}
 
 static inline Uint8 clampU8(int v) {
     if (v < 0) v = 0;
@@ -129,11 +171,11 @@ static SDL_Color bgForPhase(DayPhase ph) {
     };
 }
 
-// ---------------- Director implementation ----------------
-// Matches the API declared in Game.hpp
+// Director implementation (as declared in Game.hpp)
+
 void Director::onDayStart(const Player& p, const WorldState& w) {
-    // Adjust baseline tension from basic survival pressure
     float hp = p.health / 100.0f;
+
     float scarcity = 0.0f;
     if (p.food <= 0)  scarcity += 0.12f;
     if (p.water <= 0) scarcity += 0.16f;
@@ -142,9 +184,7 @@ void Director::onDayStart(const Player& p, const WorldState& w) {
     float weatherStress = (w.weather == Weather::Storm) ? 0.10f
         : (w.weather == Weather::Rain) ? 0.03f : -0.02f;
 
-    // Health helps reduce tension when high
     float change = scarcity + weatherStress - (hp > 0.8f ? 0.05f : 0.0f);
-
     tension += change;
     if (tension < 0.0f) tension = 0.0f;
     if (tension > 1.0f) tension = 1.0f;
@@ -155,14 +195,10 @@ void Director::onEventApplied(const Event& e) {
     lastType = e.type;
 
     if (delta >= 0) {
-        goodStreak++;
-        badStreak = 0;
-        tension -= 0.05f;
+        goodStreak++; badStreak = 0; tension -= 0.05f;
     }
     else {
-        badStreak++;
-        goodStreak = 0;
-        tension += 0.06f;
+        badStreak++;  goodStreak = 0; tension += 0.06f;
     }
 
     if (tension < 0.0f) tension = 0.0f;
@@ -170,14 +206,13 @@ void Director::onEventApplied(const Event& e) {
 }
 
 float Director::weatherBias() const {
-    // -1..+1: <0 favors clearer, >0 favors stormier
-    if (tension > 0.7f)  return -0.35f; // ease up when very tense
-    if (tension < 0.25f) return +0.20f; // add spice when too calm
+    // <0: bias toward calmer; >0: bias toward stormier
+    if (tension > 0.70f)  return -0.35f; // if player under stress, ease weather
+    if (tension < 0.25f)  return +0.20f; // if too calm, add drama
     return 0.0f;
 }
 
 float Director::weightMultiplierForType(const std::string& type) const {
-    // Nudge event categories based on tension
     if (tension > 0.65f) {
         if (type == "WATER")     return 1.35f;
         if (type == "FORAGE")    return 1.20f;
@@ -191,7 +226,131 @@ float Director::weightMultiplierForType(const std::string& type) const {
     return 1.0f;
 }
 
-// Weather overlay (prominent but readable)
+
+// Data-driven difficulty curves  +  dynamic event chains
+
+
+namespace {
+
+    struct DiffCurve {
+        // Bias weather and scale event categories (multipliers)
+        float stormBias;     // additive with Director::weatherBias
+        float discMul;
+        float forageMul;
+        float waterMul;
+        float animalMul;
+        float weatherMul;
+    };
+
+    // Defaults if no file is provided
+    static DiffCurve g_easy{ -0.15f, 1.00f, 1.10f, 1.15f, 0.95f, 0.90f };
+    static DiffCurve g_normal{ 0.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f };
+    static DiffCurve g_hard{ 0.12f, 1.10f, 0.95f, 0.90f, 1.10f, 1.15f };
+
+    // Optional: load overrides from data/difficulty.tsv
+    static void tryLoadDifficultyTSV(const std::string& path) {
+        std::ifstream f(path);
+        if (!f) return; // optional
+
+        auto parseRow = [](const std::string& line, DiffCurve& out) -> bool {
+            if (line.empty() || line[0] == '#') return false;
+            std::stringstream ss(line);
+            std::vector<std::string> cols;
+            std::string tok;
+            while (std::getline(ss, tok, '\t')) cols.push_back(tok);
+            if (cols.size() < 7) return false;
+
+            DiffCurve tmp{};
+            try {
+                tmp.stormBias = std::stof(cols[1]);
+                tmp.discMul = std::stof(cols[2]);
+                tmp.forageMul = std::stof(cols[3]);
+                tmp.waterMul = std::stof(cols[4]);
+                tmp.animalMul = std::stof(cols[5]);
+                tmp.weatherMul = std::stof(cols[6]);
+            }
+            catch (...) { return false; }
+
+            out = tmp;
+            return true;
+            };
+
+        std::string header; std::getline(f, header); // allow header row
+
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line.empty()) continue;
+
+            // Identify the level (first column, case-insensitive)
+            std::stringstream s2(line);
+            std::vector<std::string> cols;
+            std::string tok;
+            while (std::getline(s2, tok, '\t')) cols.push_back(tok);
+            if (cols.size() < 7) continue;
+
+            std::string lvl = cols[0];
+            for (auto& c : lvl) c = (char)std::toupper((unsigned char)c);
+
+            DiffCurve out{};
+            if (!parseRow(line, out)) continue;
+
+            if (lvl == "EASY")   g_easy = out;
+            if (lvl == "NORMAL") g_normal = out;
+            if (lvl == "HARD")   g_hard = out;
+        }
+    }
+
+    // Blend Easy/Normal/Hard using Director tension
+    // high tension -> shift toward Easy; low tension -> shift toward Hard
+    static DiffCurve blendedCurve(float tension) {
+        auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
+
+        if (tension >= 0.66f) {
+            float t = (tension - 0.66f) / 0.34f; if (t < 0) t = 0; if (t > 1) t = 1;
+            DiffCurve out;
+            out.stormBias = lerp(g_normal.stormBias, g_easy.stormBias, t);
+            out.discMul = lerp(g_normal.discMul, g_easy.discMul, t);
+            out.forageMul = lerp(g_normal.forageMul, g_easy.forageMul, t);
+            out.waterMul = lerp(g_normal.waterMul, g_easy.waterMul, t);
+            out.animalMul = lerp(g_normal.animalMul, g_easy.animalMul, t);
+            out.weatherMul = lerp(g_normal.weatherMul, g_easy.weatherMul, t);
+            return out;
+        }
+        else if (tension <= 0.33f) {
+            float t = (0.33f - tension) / 0.33f; if (t < 0) t = 0; if (t > 1) t = 1;
+            DiffCurve out;
+            out.stormBias = lerp(g_normal.stormBias, g_hard.stormBias, t);
+            out.discMul = lerp(g_normal.discMul, g_hard.discMul, t);
+            out.forageMul = lerp(g_normal.forageMul, g_hard.forageMul, t);
+            out.waterMul = lerp(g_normal.waterMul, g_hard.waterMul, t);
+            out.animalMul = lerp(g_normal.animalMul, g_hard.animalMul, t);
+            out.weatherMul = lerp(g_normal.weatherMul, g_hard.weatherMul, t);
+            return out;
+        }
+        else {
+            return g_normal;
+        }
+    }
+
+    //Event Chains 
+    static int   g_activeChain = -1;
+    static int   g_chainDaysLeft = 0; // follow-up window
+
+    static int parseChainId(const std::string& desc) {
+        // look for {chain:NUMBER}
+        size_t a = desc.find("{chain:");
+        if (a == std::string::npos) return -1;
+        size_t b = desc.find('}', a + 7);
+        if (b == std::string::npos) return -1;
+        std::string num = desc.substr(a + 7, b - (a + 7));
+        try { return std::stoi(num); }
+        catch (...) { return -1; }
+    }
+
+} // anonymous namespace
+
+
+// Weather overlay (visual)
 static void renderWeatherEffects(SDL_Renderer* renderer, int w, int h,
     Weather weather, float& lightningFlash,
     std::mt19937& rng)
@@ -263,7 +422,8 @@ static void craftMenu(Player& player, WorldState& world)
     }
 }
 
-// ======================= ctor / dtor =======================
+
+//  ctor / dtor 
 
 Game::Game(const std::string& dataDir)
     : rng_(static_cast<unsigned>(
@@ -278,6 +438,9 @@ Game::Game(const std::string& dataDir)
         std::cerr << "[FATAL] " << e.what() << "\n";
         std::exit(1);
     }
+
+    // Optional difficulty overrides
+    tryLoadDifficultyTSV(dataDir_ + "/difficulty.tsv");
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n"; std::exit(1);
@@ -297,7 +460,8 @@ Game::~Game() {
     SDL_Quit();
 }
 
-// ================= Console UI =================
+
+//  Console UI 
 
 void Game::printHeader() const {
     setColor(ConsoleColor::Cyan);
@@ -325,12 +489,80 @@ void Game::printMenu() const {
     std::cout << "> ";
 }
 
-// ================= Actions =================
+
+//  Actions 
 
 void Game::doAction(int c) {
     switch (c) {
-    case 1: player_.energy -= 10; player_.food += 1; break;
-    case 2: player_.energy -= 10; player_.water += 1; break;
+    case 1: { // FORAGE (food)
+        player_.energy -= 10;
+
+        // Base amount
+        int got = 1;
+
+        // Odds for extra yield
+        float pPlus1 = 0.22f;  
+        float pPlus2 = 0.06f;   
+
+        // Weather / time nudges
+        if (world_.weather == Weather::Clear)  pPlus1 += 0.05f;   // easier to spot
+        if (world_.phase == DayPhase::Morning) pPlus1 += 0.03f; // early activity
+
+        // Data-driven difficulty curve: use your blended curve
+        DiffCurve curve = blendedCurve(director_.tension);
+        pPlus1 *= curve.forageMul;
+        pPlus2 *= curve.forageMul;
+
+        // Gentle "assist" when tension is high
+        if (director_.tension > 0.70f) { pPlus1 *= 1.20f; pPlus2 *= 1.15f; }
+
+        // Clamp to sane range
+        auto clamp01 = [](float x) { return (x < 0.f ? 0.f : (x > 0.95f ? 0.95f : x)); };
+        pPlus1 = clamp01(pPlus1);
+        pPlus2 = clamp01(pPlus2);
+
+        // Roll once: a high roll can skip to the bigger bonus
+        std::uniform_real_distribution<float> U(0.0f, 1.0f);
+        float r = U(rng_);
+        if (r < pPlus2)      got += 2;
+        else if (r < pPlus1) got += 1;
+
+        player_.food += got;
+        break;
+    }
+    case 2: { // COLLECT WATER
+        player_.energy -= 10;
+
+        int got = 1;
+
+        float pPlus1 = 0.25f; 
+        float pPlus2 = 0.08f;
+
+        // Weather and structures matter a lot for water
+        if (world_.weather == Weather::Rain) { pPlus1 += 0.20f; pPlus2 += 0.06f; }
+        if (world_.hasCollector) { pPlus1 += 0.10f; }  // passive help
+
+        // Difficulty curve scaling
+        DiffCurve curve = blendedCurve(director_.tension);
+        pPlus1 *= curve.waterMul;
+        pPlus2 *= curve.waterMul;
+
+        // Assist under high tension
+        if (director_.tension > 0.70f) { pPlus1 *= 1.20f; pPlus2 *= 1.15f; }
+
+        auto clamp01 = [](float x) { return (x < 0.f ? 0.f : (x > 0.95f ? 0.95f : x)); };
+        pPlus1 = clamp01(pPlus1);
+        pPlus2 = clamp01(pPlus2);
+
+        std::uniform_real_distribution<float> U(0.0f, 1.0f);
+        float r = U(rng_);
+        if (r < pPlus2)      got += 2;
+        else if (r < pPlus1) got += 1;
+
+        player_.water += got;
+        break;
+    }
+
     case 3: player_.energy -= 12; player_.wood += 2; break;
     case 4: player_.energy -= 8;  applyEvent();       break;
     case 5: player_.energy += (player_.hasShelter ? 25 : 15); break;
@@ -363,7 +595,8 @@ void Game::doAction(int c) {
     player_.clamp();
 }
 
-// ================= Weather helpers =================
+
+//  Weather helpers 
 
 void Game::advanceWeather() {
     // Base Markov-ish step from current weather
@@ -382,8 +615,9 @@ void Game::advanceWeather() {
     }
     world_.weather = static_cast<Weather>(nxt);
 
-    // Director bias (gentler when tension is high; spicier when too calm)
-    float bias = director_.weatherBias(); // -1..+1
+    // Director + Difficulty bias
+    DiffCurve curve = blendedCurve(director_.tension);
+    float bias = director_.weatherBias() + curve.stormBias; // -1..+1 (roughly)
     float rb = U(rng_);
     if (bias < -0.01f) {
         if (world_.weather == Weather::Storm && rb < 0.55f) world_.weather = Weather::Rain;
@@ -397,6 +631,8 @@ void Game::advanceWeather() {
 
 float Game::weatherWeightMul(const std::string& type) const {
     float mul = 1.0f;
+
+    // Baseline: weather-contextual nudges
     if (world_.weather == Weather::Clear) {
         if (type == "DISCOVERY" || type == "FORAGE") mul *= 1.2f;
     }
@@ -412,21 +648,44 @@ float Game::weatherWeightMul(const std::string& type) const {
         if (type == "FORAGE")    mul *= 0.9f;
     }
 
-    // Director overlay
+    // Difficulty curve layer (data-driven)
+    DiffCurve curve = blendedCurve(director_.tension);
+    if (type == "DISCOVERY") mul *= curve.discMul;
+    else if (type == "FORAGE")    mul *= curve.forageMul;
+    else if (type == "WATER")     mul *= curve.waterMul;
+    else if (type == "ANIMAL")    mul *= curve.animalMul;
+    else if (type == "WEATHER")   mul *= curve.weatherMul;
+
+    // Director adaptive layer
     mul *= director_.weightMultiplierForType(type);
+
     return mul;
 }
 
-// ================= Events =================
+
+//  Events 
 
 void Game::applyEvent() {
+    // Build per-event effective weights
     std::vector<int> eff; eff.reserve(events_.size());
     int totalW = 0;
     for (auto& e : events_) {
         int w = (int)std::floor(e.weight * weatherWeightMul(e.type) + 0.5f);
         if (w < 1) w = 1;
+
+        // If we have an active chain, boost matching events
+        if (g_activeChain >= 0 && g_chainDaysLeft > 0) {
+            int cid = parseChainId(e.description);
+            if (cid == g_activeChain) {
+                w = (int)std::floor(w * 1.45f); // strong nudge for follow-up
+            }
+            else {
+                w = (int)std::floor(w * 0.92f); // slight downweight for unrelated
+            }
+        }
         eff.push_back(w); totalW += w;
     }
+
     std::uniform_int_distribution<int> dist(1, totalW);
     int r = dist(rng_);
 
@@ -434,10 +693,17 @@ void Game::applyEvent() {
     for (size_t i = 0; i < events_.size(); ++i) { cum += eff[i]; if (r <= cum) { picked = &events_[i]; break; } }
     if (!picked) return;
 
+    // Apply results
     int score = picked->dEnergy + picked->dFood + picked->dWater + picked->dWood + picked->dHealth;
     ConsoleColor col = (score > 0) ? ConsoleColor::Green : (score < 0 ? ConsoleColor::Red : ConsoleColor::Gray);
 
-    setColor(col); std::cout << "\n>> " << picked->description << "\n"; resetColor();
+    // Pretty message with stat deltas
+    std::string cleanText = stripTags(picked->description);
+    std::string deltas = buildDeltaString(*picked);
+    setColor(col);
+    std::cout << "\n>> " << cleanText << " " << deltas << "\n";
+    resetColor();
+
 
     player_.energy += picked->dEnergy;
     player_.food += picked->dFood;
@@ -446,18 +712,24 @@ void Game::applyEvent() {
     player_.health += picked->dHealth;
     player_.clamp();
 
+    // Update chain state
+    int newChain = parseChainId(picked->description);
+    if (newChain >= 0) {
+        g_activeChain = newChain;
+        g_chainDaysLeft = 2;   // keep chain "hot" for a couple of days
+    }
+
     // Notify Director
     director_.onEventApplied(*picked);
 }
 
-// ================= Daily tick (hunger/thirst + weather + crafting + phase) =================
 
 void Game::nextDayTick() {
     player_.day++;
     player_.daysSinceEat++;
     player_.daysSinceDrink++;
 
-    if (player_.daysSinceEat == 2) { setColor(ConsoleColor::Yellow); std::cout << "Your stomach growls. Consider eating soon.\n"; resetColor(); }
+    if (player_.daysSinceEat == 2) { setColor(ConsoleColor::Yellow); std::cout << "Your stomach growls. Consider eating soon.\n";  resetColor(); }
     if (player_.daysSinceDrink == 2) { setColor(ConsoleColor::Yellow); std::cout << "You feel parched. Consider drinking soon.\n"; resetColor(); }
 
     // Food
@@ -496,8 +768,8 @@ void Game::nextDayTick() {
     if (player_.hasShelter) player_.energy += 5;
 
     // Crafting daily bonuses
-    if (world_.hasCampfire)                              player_.energy += 10;
-    if (world_.hasCollector && world_.weather == Weather::Rain) player_.water += 1;
+    if (world_.hasCampfire)                                      player_.energy += 10;
+    if (world_.hasCollector && world_.weather == Weather::Rain)  player_.water += 1;
 
     // Weather daily effects
     switch (world_.weather) {
@@ -506,10 +778,13 @@ void Game::nextDayTick() {
     case Weather::Storm: player_.energy -= 4; if (!player_.hasShelter) player_.health -= 5; break;
     }
 
-    // Director observes start-of-day state (for next pacing decisions)
+    // Director observes start-of-day
     director_.onDayStart(player_, world_);
 
-    // Next weather and phase
+    // Tick down chain window
+    if (g_chainDaysLeft > 0) { g_chainDaysLeft--; if (g_chainDaysLeft == 0) g_activeChain = -1; }
+
+    // Next weather + phase
     advanceWeather();
     world_.phase = (world_.phase == DayPhase::Morning) ? DayPhase::Day
         : (world_.phase == DayPhase::Day) ? DayPhase::Evening
@@ -520,7 +795,8 @@ void Game::nextDayTick() {
     renderHUD();
 }
 
-// ================= Menu (non-blocking; keeps SDL responsive) =================
+
+//  Menu
 
 int Game::readMenuChoice() {
     std::string line;
@@ -543,7 +819,8 @@ int Game::readMenuChoice() {
     }
 }
 
-// ================= Main loop =================
+
+//  Main loop 
 
 void Game::run() {
     std::cout << "Load previous game? (y/n): ";
@@ -574,17 +851,18 @@ void Game::run() {
     }
 }
 
-// ================= Debug overlay =================
+
+//  Debug overlay 
 
 void Game::renderDebugPanel(int w, int h) const {
     if (!debug_) return;
 
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 140);
-    SDL_FRect panel{ (float)w - 240.0f, 20.0f, 220.0f, 186.0f };
+    SDL_FRect panel{ (float)w - 240.0f, 20.0f, 220.0f, 206.0f };
     SDL_RenderFillRect(renderer_, &panel);
 
-    // Weather probabilities for next day (based on current)
+    // Weather probabilities (informative, static)
     float pClear = 0.0f, pRain = 0.0f, pStorm = 0.0f;
     switch (world_.weather) {
     case Weather::Clear: pClear = 0.70f; pRain = 0.20f; pStorm = 0.10f; break;
@@ -626,7 +904,7 @@ void Game::renderDebugPanel(int w, int h) const {
         "THIRST", 2.0f, SDL_Color{ 255,255,255,255 });
     meter(panel.y + 124.0f, player_.daysSinceDrink, SDL_Color{ 100,180,255,255 });
 
-    // Phase + general info + Director debug
+    // Phase + general info
     const char* phaseName =
         (world_.phase == DayPhase::Morning) ? "MORN" :
         (world_.phase == DayPhase::Day) ? "DAY" :
@@ -641,19 +919,28 @@ void Game::renderDebugPanel(int w, int h) const {
     std::string crafts =
         std::string("CF:") + (world_.hasCampfire ? "Y" : "N") +
         " RC:" + (world_.hasCollector ? "Y" : "N");
-    ui::DrawText5x7(renderer_, panel.x + 140.0f, panel.y + 142.0f,
+    ui::DrawText5x7(renderer_, panel.x + 148.0f, panel.y + 142.0f,
         crafts, 2.0f, SDL_Color{ 230,230,230,255 });
 
-    // Director tension meter
+    // Director tension + chain id + difficulty snapshot
+    DiffCurve curve = blendedCurve(director_.tension);
     ui::DrawText5x7(renderer_, panel.x + 10.0f, panel.y + 160.0f,
         "DIR TENSION", 2.0f, SDL_Color{ 255,255,255,255 });
     float t = director_.tension; if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
     SDL_SetRenderDrawColor(renderer_, 255, 200, 100, 255);
     SDL_FRect tr{ panel.x + 10.0f, panel.y + 176.0f, t * (panel.w - 20.0f), 8.0f };
     SDL_RenderFillRect(renderer_, &tr);
+
+    // Small line: Chain + Curve summary
+    std::string line = "CHAIN:";
+    line += (g_activeChain >= 0 ? std::to_string(g_activeChain) : "-");
+    line += "  CURVE(sb=" + std::to_string((int)std::round(curve.stormBias * 100)) + "%)";
+    ui::DrawText5x7(renderer_, panel.x + 10.0f, panel.y + 190.0f,
+        line, 2.0f, SDL_Color{ 220,220,220,255 });
 }
 
-// ================= HUD rendering (SDL) =================
+
+//  HUD rendering (SDL) 
 
 void Game::renderHUD() {
     static float prevFood = (float)0;

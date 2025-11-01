@@ -1,0 +1,4 @@
+Level	StormBias	DiscMul	ForageMul	WaterMul	AnimalMul	WeatherMul
+Easy	-0.15	1.00	1.10	1.15	0.95	0.90
+Normal	0.00	1.00	1.00	1.00	1.00	1.00
+Hard	0.12	1.10	0.95	0.90	1.10	1.15

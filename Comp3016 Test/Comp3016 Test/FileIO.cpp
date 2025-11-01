@@ -3,6 +3,8 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <iostream>   
+#include <algorithm>
 
 static int toInt(const std::string& s) {
     try { return std::stoi(s); }
@@ -44,17 +46,26 @@ Player FileIO::loadPlayerInit(const std::string& path) {
 
 std::vector<Event> FileIO::loadEventsTSV(const std::string& path) {
     std::ifstream in(path);
-    if (!in) throw std::runtime_error("Could not open " + path);
+    if (!in)
+        throw std::runtime_error("Could not open " + path);
+
     std::vector<Event> out;
     std::string line;
     while (std::getline(in, line)) {
         line = trim(line);
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
+
         std::stringstream ss(line);
         std::string col;
         std::vector<std::string> cols;
-        while (std::getline(ss, col, '\t')) cols.push_back(trim(col));
-        if (cols.size() < 8) continue;
+        while (std::getline(ss, col, '\t'))
+            cols.push_back(trim(col));
+
+        // Basic validation: must have at least the core 8 columns
+        if (cols.size() < 8)
+            continue;
+
         Event e;
         e.type = cols[0];
         e.description = cols[1];
@@ -64,12 +75,29 @@ std::vector<Event> FileIO::loadEventsTSV(const std::string& path) {
         e.dWood = parseDelta(cols[5]);
         e.dHealth = parseDelta(cols[6]);
         e.weight = toInt(cols[7]);
-        if (e.weight < 1) e.weight = 1;
+        if (e.weight < 1)
+            e.weight = 1;
+
+        // Optional chaining columns (safe if not present)
+        if (cols.size() > 8) e.key = cols[8];
+        if (cols.size() > 9) e.chainNext = cols[9];
+
         out.push_back(e);
     }
-    if (out.empty()) throw std::runtime_error("No events loaded from " + path);
+
+    if (out.empty())
+        throw std::runtime_error("No events loaded from " + path);
+
+    // Debug summary (optional)
+    std::cout << "[DEBUG] Loaded " << out.size() << " events from " << path << "\n";
+    size_t chained = std::count_if(out.begin(), out.end(),
+        [](const Event& e) { return !e.chainNext.empty(); });
+    if (chained > 0)
+        std::cout << "         (" << chained << " have chain links)\n";
+
     return out;
 }
+
 
 void FileIO::saveGame(const std::string& path, const Player& p) {
     std::ofstream out(path);

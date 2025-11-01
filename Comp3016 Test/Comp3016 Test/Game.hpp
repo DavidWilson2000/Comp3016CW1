@@ -7,7 +7,7 @@
 #include "Event.hpp"
 #include <deque>
 
-// ---- Global enums/types ----
+//  Global enums/types 
 enum class DayPhase { Morning, Day, Evening, Night };
 enum class Weather { Clear, Rain, Storm };
 
@@ -47,6 +47,11 @@ private:
     SDL_Window* window_{ nullptr };
     SDL_Renderer* renderer_{ nullptr };
 
+    std::string forcedEventKey_;   
+    int         forcedExpiryDay_ = -1; 
+
+    const Event* findEventByKey_(const std::string& k) const;
+    void scheduleNextInChain_(const Event& e);
 
     Director               director_;  
 

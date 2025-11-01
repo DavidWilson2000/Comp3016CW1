@@ -11,9 +11,9 @@ inline std::string trim(std::string s) {
     return s;
 }
 
-//
-// ===== Console color helpers =====
-//
+
+//  Console color helpers 
+
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX

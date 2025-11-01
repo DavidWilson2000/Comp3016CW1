@@ -150,6 +150,7 @@
     <ClInclude Include="Utils.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="difficulty.tsv" />
     <None Include="events.tsv" />
   </ItemGroup>
   <ItemGroup>
