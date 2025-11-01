@@ -725,7 +725,6 @@ void Game::applyEvent() {
 
 
 void Game::nextDayTick() {
-    player_.day++;
     player_.daysSinceEat++;
     player_.daysSinceDrink++;
 
@@ -743,7 +742,7 @@ void Game::nextDayTick() {
             int enLoss = (player_.daysSinceEat >= 4) ? 18 : 10;
             player_.health -= hpLoss; player_.energy -= enLoss;
             setColor(ConsoleColor::Red);
-            std::cout << "You are starving (" << player_.daysSinceEat << " days without food). HP-" << hpLoss << " EN-" << enLoss << "\n";
+            std::cout << "You are starving (" << player_.daysSinceEat << " ticks without food). HP-" << hpLoss << " EN-" << enLoss << "\n";
             resetColor();
         }
     }
@@ -786,15 +785,29 @@ void Game::nextDayTick() {
 
     // Next weather + phase
     advanceWeather();
-    world_.phase = (world_.phase == DayPhase::Morning) ? DayPhase::Day
-        : (world_.phase == DayPhase::Day) ? DayPhase::Evening
-        : (world_.phase == DayPhase::Evening) ? DayPhase::Night
-        : DayPhase::Morning;
+
+    // Work out the next phase
+    DayPhase nextPhase =
+        (world_.phase == DayPhase::Morning) ? DayPhase::Day :
+        (world_.phase == DayPhase::Day) ? DayPhase::Evening :
+        (world_.phase == DayPhase::Evening) ? DayPhase::Night :
+        DayPhase::Morning;
+
+    // If we’re wrapping Night -> Morning, a full day has passed
+    bool finishedDay = (world_.phase == DayPhase::Night && nextPhase == DayPhase::Morning);
+
+    // Apply the phase change
+    world_.phase = nextPhase;
+
+    // Increment day counter only after a full cycle completes
+    if (finishedDay) {
+        player_.day++;
+    }
 
     player_.clamp();
     renderHUD();
-}
 
+}
 
 //  Menu
 
@@ -974,6 +987,23 @@ void Game::renderHUD() {
     SDL_FRect fg{ barX, barY, filled, barHeight }; SDL_RenderFillRect(renderer_, &fg);
     ui::DrawText5x7(renderer_, barX, barY - 16.0f, std::string("HEALTH ") + std::to_string(player_.health) + "/100", 2.0f, SDL_Color{ 255,255,255,255 });
 
+    float eBarY = barY + barHeight + 18.0f;           // vertical gap below health
+    float eBarH = 20.0f;                              // slightly slimmer than health
+    float ePerc = player_.energy / 100.0f;            
+    if (ePerc < 0.0f) ePerc = 0.0f; if (ePerc > 1.0f) ePerc = 1.0f;
+    float eFill = barWidth * ePerc;
+
+    SDL_FRect eBg{ barX, eBarY, barWidth, eBarH };
+    SDL_SetRenderDrawColor(renderer_, 40, 40, 40, 255);
+    SDL_RenderFillRect(renderer_, &eBg);
+
+    SDL_SetRenderDrawColor(renderer_, 255, 220, 80, 255);  // yellow
+    SDL_FRect eFg{ barX, eBarY, eFill, eBarH };
+    SDL_RenderFillRect(renderer_, &eFg);
+
+    ui::DrawText5x7(renderer_, barX, eBarY - 14.0f,
+        std::string("ENERGY ") + std::to_string(player_.energy) + "/100",
+        2.0f, SDL_Color{ 255,255,255,255 });
     // Weather icon + labels
     SDL_FRect icon{ (float)w - 60.0f, 22.0f, 38.0f, 26.0f };
     switch (world_.weather) {
@@ -1008,7 +1038,7 @@ void Game::renderHUD() {
     ui::DrawText5x7(renderer_, barX + 220.0f, barY - 16.0f, phname, 2.0f, SDL_Color{ 230,230,230,255 });
 
     // Resource boxes (food/water/wood)
-    float boxSize = 80.0f, padding = 20.0f, startY = 80.0f, startX = 20.0f;
+    float boxSize = 80.0f, padding = 20.0f, startY = 120.0f, startX = 20.0f;
     struct Item { const char* label; int value; SDL_Color color; bool pulse; };
     Item items[] = {
         {"FOOD",  player_.food,  SDL_Color{200,200, 50,255},   pulseFood  },
