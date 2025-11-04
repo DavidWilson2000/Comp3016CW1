@@ -70,6 +70,14 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)x64\$(Configuration)\obj\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)x64\$(Configuration)\obj\</IntDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -87,11 +95,17 @@
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(TargetDir)data" mkdir "$(TargetDir)data"
-xcopy /y /e /q "$(ProjectDir)data\*" "$(TargetDir)data\"
+      <Command>REM Copy data folder (creates destination if needed)
+xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
+
+REM Copy initial save/config
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-xcopy /y /i "$(SolutionDir)SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-exit 0</Command>
+
+REM Copy SDL runtime DLL
+copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
+
+exit 0
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -115,11 +129,17 @@ exit 0</Command>
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(TargetDir)data" mkdir "$(TargetDir)data"
-xcopy /y /e /q "$(ProjectDir)data\*" "$(TargetDir)data\"
+      <Command>REM Copy data folder (creates destination if needed)
+xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
+
+REM Copy initial save/config
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-xcopy /y /i "$(SolutionDir)SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-exit 0</Command>
+
+REM Copy SDL runtime DLL
+copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
+
+exit 0
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -139,11 +159,15 @@ exit 0</Command>
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(TargetDir)data" mkdir "$(TargetDir)data"
-xcopy /y /e /q "$(ProjectDir)data\*" "$(TargetDir)data\"
+      <Command>REM Copy data folder
+xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
+
+REM Copy initial save/config
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-xcopy /y /i "$(SolutionDir)SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-exit 0</Command>
+
+REM Copy SDL runtime DLL (change name if yours is SDL3-0.dll)
+copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -167,11 +191,15 @@ exit 0</Command>
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(TargetDir)data" mkdir "$(TargetDir)data"
-xcopy /y /e /q "$(ProjectDir)data\*" "$(TargetDir)data\"
+      <Command>REM Copy data folder
+xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
+
+REM Copy initial save/config
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-xcopy /y /i "$(SolutionDir)SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-exit 0</Command>
+
+REM Copy SDL runtime DLL (change name if yours is SDL3-0.dll)
+copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
