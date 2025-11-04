@@ -95,16 +95,9 @@
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copy data folder (creates destination if needed)
-xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
-
-REM Copy initial save/config
+      <Command>xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-
-REM Copy SDL runtime DLL
 copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-
-exit 0
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -129,16 +122,9 @@ exit 0
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copy data folder (creates destination if needed)
-xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
-
-REM Copy initial save/config
+      <Command>xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-
-REM Copy SDL runtime DLL
 copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
-
-exit 0
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -159,13 +145,8 @@ exit 0
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copy data folder
-xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
-
-REM Copy initial save/config
+      <Command>xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-
-REM Copy SDL runtime DLL (change name if yours is SDL3-0.dll)
 copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
 </Command>
     </PostBuildEvent>
@@ -191,13 +172,8 @@ copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
       </AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>REM Copy data folder
-xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
-
-REM Copy initial save/config
+      <Command>xcopy /y /e /i /q "$(ProjectDir)data" "$(TargetDir)data\"
 copy /y "$(ProjectDir)player_init.txt" "$(TargetDir)"
-
-REM Copy SDL runtime DLL (change name if yours is SDL3-0.dll)
 copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
 </Command>
     </PostBuildEvent>
@@ -217,6 +193,7 @@ copy /y "$(ProjectDir)..\SDL\bin\$(Platform)\SDL3.dll" "$(TargetDir)"
     <ClInclude Include="Utils.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\SDL\bin\x64\SDL3.dll" />
     <None Include="difficulty.tsv" />
     <None Include="events.tsv" />
   </ItemGroup>

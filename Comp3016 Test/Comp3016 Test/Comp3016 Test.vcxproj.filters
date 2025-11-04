@@ -41,6 +41,7 @@
     <None Include="difficulty.tsv">
       <Filter>data/</Filter>
     </None>
+    <None Include="..\SDL\bin\x64\SDL3.dll" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="player_init.txt">
