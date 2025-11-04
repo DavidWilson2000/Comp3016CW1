@@ -5,3 +5,12 @@ Release/
 *.opendb
 *.obj
 *.pdb
+
+
+# Always include SDL runtime files
+!SDL/
+!SDL/**
+!SDL/bin/
+!SDL/bin/**
+!SDL/**/*.dll
+!SDL/**/*.lib

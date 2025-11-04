@@ -171,3 +171,12 @@ test/torturethread
 docs/output
 SDL.tag
 doxygen_warn.txt
+
+# Always include SDL runtime files
+!SDL/
+!SDL/**
+!SDL/bin/
+!SDL/bin/**
+!SDL/**/*.dll
+!SDL/**/*.lib
+
