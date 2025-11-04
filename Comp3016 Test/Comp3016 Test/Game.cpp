@@ -176,7 +176,7 @@ static void WinAndQuit(const std::string& reason) {
     std::exit(0);
 }
 
-//  Director 
+//  AI Director 
 void Director::onDayStart(const Player& p, const WorldState& w) {
     float hp = p.health / 100.0f;
 
@@ -609,7 +609,7 @@ void Game::applyEvent() {
 
     // Synthetic "Raft Escape"  if eligible or forced via debug
     bool raftEligible = (player_.wood >= 30);
-    bool raftRoll = (irand(rng_, 0, 99) == 0); // ~1% base
+    bool raftRoll = (irand(rng_, 0, 99) == 0); // 1% base chance
     bool offerRaft = raftEligible && (raftRoll || g_forceRaft);
     int raftWeightIdx = -1;
     if (offerRaft) {
